@@ -7,10 +7,10 @@ using namespace Automation::BDaq;
 
 #define      deviceDescription 0 
 
-double clkRate = 50000;
+double clkRate = 16384;
 int chStart = 0;
 const int chCount = 3;
-const int samples = 50000;
+const int samples = 16384;
 
 // volt to nanotesla scale
 double scale = 7000;
@@ -67,7 +67,7 @@ static PyObject* readFGvalue(PyObject* self, PyObject* args)
     CHK_RESULT(ret);
 
     bfdAiCtrl->RunOnce();
-    //SLEEP(1);
+    SLEEP(1);
     
     
     // Step 6: Read samples and do post-process, we show the first sample of each channel to console here.
@@ -83,28 +83,45 @@ static PyObject* readFGvalue(PyObject* self, PyObject* args)
 	}
     */
     // Extract field components from dataBuffer
+    /*for(int32 i=0; i < chCount; ++i)
+    {
+        printf("%10.6f \n", scale*Data[i]);
+    }*/
     double Bx[samples];
+    double sum = 0;
     for(int32 i = 0; i < samples; ++i)
     {
         Bx[i] = scale * Data[3*i];
+        sum = sum + Bx[i];
     }
+    double meanBx = sum/samples;
+    B.x = meanBx;
+    sum = 0;
     double By[samples];
     for(int32 i = 0; i < samples; ++i)
     {
         By[i] = scale * Data[3*i+1];
+        sum = sum + By[i];
     }
+    double meanBy = sum/samples;
+    B.y = meanBy;
+    sum = 0;
     double Bz[samples];
     for(int32 i = 0; i < samples; ++i)
     {
         Bz[i] = scale * Data[3*i+2];
+        sum = sum + Bz[i];
     }
+    double meanBz = sum/samples;
+    B.z = meanBz;
     // calculate mean over last databuffer
-    double sum = 0;
+    //
+    /*double sum = 0;
     for(int32 i = 0; i < samples; ++i)
     {
         sum = sum + Bx[i];
     }
-    double meanBx = sum/samples;
+    /double meanBx = sum/samples;
     B.x = meanBx;
     sum = 0;
     for(int32 i = 0; i < samples; ++i)
@@ -120,7 +137,7 @@ static PyObject* readFGvalue(PyObject* self, PyObject* args)
     }
     double meanBz = sum/samples;
     B.z = meanBz;
-    
+    */
 	// Step 7: close device, release any allocated resource.
     bfdAiCtrl->Cleanup();
     bfdAiCtrl->Dispose();   
