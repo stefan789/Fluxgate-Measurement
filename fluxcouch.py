@@ -12,31 +12,14 @@ the_view = des.view("latest_value")
 
 
 _running = False
+_myprocess = None
 
 def is_running():
     return _running
 
 def _measure():
-    while True:
-        if is_running():
-            reading = ads.readFGvalue()
-            time.sleep(1)
-            adoc = {
-                    "type": "data",
-                    "value": {
-                        "Bx": reading[0],
-                        "By": reading[1],
-                        "Bz": reading[2]
-                        }
-                    }
-            r = des.post("_update/insert_with_timestamp", params = adoc)
-            print reading
-        else:
-            break
-
-def start_measure():
-    global _running
-    _running = True
+    print "measure"
+    print is_running()
     adoc = {
             "type": "data",
             "value": {
@@ -45,11 +28,21 @@ def start_measure():
             }
     r = des.post("_update/insert_with_timestamp", params = adoc)
     print r.json()
-    _measure()
-
-def stop_measure():
-    global _running
-    _running = False
+    while is_running():
+        print is_running()
+        reading = ads.readFGvalue()
+        time.sleep(1)
+        adoc = {
+            "type": "data",
+            "value": {
+                "Bx": reading[0],
+                "By": reading[1],
+                "Bz": reading[2]
+                }
+            }
+        r = des.post("_update/insert_with_timestamp", params = adoc)
+        print reading
+    print is_running()
     adoc = {
             "type": "data",
             "value": {
@@ -58,6 +51,26 @@ def stop_measure():
             }
     r = des.post("_update/insert_with_timestamp", params = adoc)
     print r.json()
+
+def start_measure():
+    global _running, _myprocess
+    if _myprocess is not None:
+        raise Exception("Measurement already running")
+
+    _running = True
+    _myprocess = pynedm.start_process(_measure)
+    return True
+
+def stop_measure():
+    print "stop_measure"
+    global _running, _myprocess
+    if _myprocess is None:
+        raise Exception("Measurement not running")
+
+    _running = False
+    retVal = _myprocess.result.get()
+    _myprocess = None
+    return retVal
 
 execute_dict =  {
         "start_measure": start_measure, 

@@ -1,4 +1,4 @@
-import controlfluxcouch as c
+import control as c
 
 c.stop()
 
