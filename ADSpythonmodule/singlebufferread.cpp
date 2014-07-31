@@ -7,10 +7,10 @@ using namespace Automation::BDaq;
 
 #define      deviceDescription 0 
 
-double clkRate = 16384*2;
+double clkRate = 50000;
 int chStart = 0;
 const int chCount = 3;
-const int samples = 16384*2;
+const int samples = 50000;
 
 // volt to nanotesla scale
 double scale = 7000;
@@ -87,6 +87,11 @@ static PyObject* readFGvalue(PyObject* self, PyObject* args)
     {
         printf("%10.6f \n", scale*Data[i]);
     }*/
+    PyObject *Bxr = PyList_New(samples);
+    for (int32 i = 0; i < (samples); ++i) {
+        PyObject *num = PyFloat_FromDouble(7000*Data[3*i]);
+        PyList_SET_ITEM(Bxr, i, num);
+    }
     double Bx[samples];
     double sum = 0;
     for(int32 i = 0; i < samples; ++i)
@@ -148,7 +153,8 @@ static PyObject* readFGvalue(PyObject* self, PyObject* args)
       printf("Some error occurred. And the last error code is Ox%X.\n", ret);
    }
    
-   return Py_BuildValue("ddd", B.x,B.y,B.z);   
+   //return Py_BuildValue("ddd",B.x,B.y,B.z);   
+   return Bxr;
 }
  
 static PyMethodDef ADSMethods[] =
