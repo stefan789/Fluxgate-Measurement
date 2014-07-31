@@ -1,6 +1,7 @@
 import pynedm
 import ads
 import cloudant
+from threading import Lock
 
 acct = cloudant.Account(uri="http://raid.nedm1:5984")
 res = acct.login("mapperfluxgate_writer", "cluster")
@@ -9,8 +10,23 @@ db = acct["nedm%2Ffluxgate"]
 des = db.design("nedm_default")
 the_view = des.view("latest_value")
 
+class Fluxgate():
+    lock = Lock()
+    def __init__(self):
+        self.a = ads.Ads(samples = 32684, clkRate = 32684)
+
+    def measureonce(self):
+        Fluxgate.lock.acquire()
+        try:
+            reading = self.a.readFGvalue()
+        finally:
+            Fluxgate.lock.release()
+        
+        return reading
+
 _running = False
 _myprocess = None
+_fg = Fluxgate()
 
 def is_running():
     return _running
@@ -25,20 +41,9 @@ def _measure():
             }
     r = des.post("_update/insert_with_timestamp", params = adoc)
     print r.json()
-    a = ads.Ads(samples = 32684, clkRate = 32684)
     while is_running():
-        reading = a.readFGvalue()
-        print reading
-        #time.sleep(1)
-        adoc = {
-            "type": "data",
-            "value": {
-                "Bx": reading[0],
-                "By": reading[1],
-                "Bz": reading[2]
-                }
-            }
-        r = des.post("_update/insert_with_timestamp", params = adoc)
+        once_measure(True)
+
     adoc = {
             "type": "data",
             "value": {
@@ -47,6 +52,30 @@ def _measure():
             }
     r = des.post("_update/insert_with_timestamp", params = adoc)
     print r.json()
+
+def once_measure(verbose=False):
+    reading = _fg.measureonce()
+    if verbose: print reading
+    adoc = {
+            "type": "data",
+            "value": {
+                "Bx": reading[0],
+                "By": reading[1],
+                "Bz": reading[2]
+                }
+            }
+    return des.post("_update/insert_with_timestamp", params = adoc).json()
+
+def log_and_measure(alog):
+    measure = once_measure()
+    if "ok" not in measure:
+         raise Exception("Error measuring")
+    doc = {
+            "type" : "log",
+            "log" : alog,
+            "dataids" : [ measure["id"] ]
+    }
+    return des.post("_update/insert_with_timestamp", params = doc).json()
 
 def start_measure():
     global _running, _myprocess
@@ -70,9 +99,12 @@ def stop_measure():
 
 execute_dict =  {
         "start_measure": start_measure, 
-        "stop_measure": stop_measure
+        "stop_measure": stop_measure,
+        "log_and_measure": log_and_measure
         }
 
-pynedm.listen(execute_dict, "nedm%2Ffluxgate", username="mapperfluxgate_writer", password="cluster", uri = "http://raid.nedm1:5984")
 
-pynedm.wait()
+if __name__ == "__main__":
+    pynedm.listen(execute_dict, "nedm%2Ffluxgate", username="mapperfluxgate_writer", password="cluster", uri = "http://raid.nedm1:5984")
+
+    pynedm.wait()

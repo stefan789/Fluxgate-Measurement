@@ -28,3 +28,14 @@ def stop():
     r = des.post("_update/insert_with_timestamp", params = adoc)
     print "stop command posted"
     #print r.json()
+
+def once():
+    adoc = {
+            "type": "command",
+            "execute": "log_and_measure",
+            "arguments" : [ "test comment" ]
+            }
+    r = des.post("_update/insert_with_timestamp", params = adoc)
+    print r.json()
+    print "measured once"
+    
