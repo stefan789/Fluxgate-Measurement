@@ -6,169 +6,340 @@
 #include "inc/bdaqctrl.h"
 using namespace Automation::BDaq;
 
+#define deviceDescription  L"USB-4716,BID#0"
+const wchar_t* profilePath = L"../../profile/DemoDevice.xml";
 
 typedef struct {
-    PyObject_HEAD
-    int32_t samples;
-    int clkRate;
-    int chStart;
-    int chCount;
-    BufferedAiCtrl *bfdAiCtrl;
+  PyObject_HEAD
+  double clkRate;
+  int chStart;
+  int chCount;
+  int samples;
+  double scale;
+  int sectionLength;
+  int sectionCount;
+  int Buffersize;
+  WaveformAiCtrl *wfAiCtrl;
 } Ads;
 
-static void
-Ads_dealloc(Ads* self) 
-{
-    self->bfdAiCtrl->Cleanup();
-    self->bfdAiCtrl->Dispose();
-
-    self->ob_type->tp_free((PyObject*)self);
+static void Ads_dealloc(Ads* self) {
+  Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
-static PyObject * 
+static PyObject *
 Ads_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
-    Ads *self;
+  Ads *self;
 
-    self = (Ads *)type->tp_alloc(type, 0);
-    if (self != NULL) {
-        self->samples = 16384;
-        self->clkRate = 16384;
-        self->chStart = 0;
-        self->chCount = 3;
-        self->bfdAiCtrl = NULL;
-    }
+  self = (Ads *)type->tp_alloc(type, 0);
+  if (self != NULL) {
+      self->clkRate = 1024;
+      self->chStart = 0;
+      self->chCount = 3;
+      self->sectionLength = 1024;
+      self->scale = 7000;
+      self->samples = self->sectionLength;
+      self->sectionCount = 1;
+      self->wfAiCtrl = NULL;
+  }
 
-    return (PyObject *)self;
+  return (PyObject *)self;
 }
 
 static int
 Ads_init(Ads *self, PyObject *args, PyObject *kwds)
 {
-    int tmp;
+    static char *kwlist[] = {"clkRate", "chStart", "chCount", "samples", NULL};
 
-    static char *kwlist[] = {"samples", "clkRate", NULL};
-
-    if (! PyArg_ParseTupleAndKeywords(args, kwds, "|ii", kwlist, &self->samples, &self->clkRate))
+    if (! PyArg_ParseTupleAndKeywords(args, kwds, "|diii", kwlist,
+                                      &self->clkRate, &self->chStart,
+                                      &self->chCount, &self->sectionLength))
         return -1;
-
 
     ErrorCode ret = Success;
 
-    self->bfdAiCtrl = AdxBufferedAiCtrlCreate();
-    DeviceInformation devInfo(0);
-    ret = self->bfdAiCtrl->setSelectedDevice(devInfo);
-    CHK_RESULT(ret);
-    printf("ErrorCode: 0x%X. \n", ret);
+    self->wfAiCtrl = WaveformAiCtrl::Create();
+    DeviceInformation devInfo(deviceDescription);
+    ret = self->wfAiCtrl->setSelectedDevice(devInfo);
+    //printf("SelectDevice ErrorCode: 0x%X. \n", ret);
+		ret = self->wfAiCtrl->LoadProfile(profilePath);//Loads a profile to initialize the device.
+		//CHK_RESULT(ret);
 
-    AiChannelCollection *channels = self->bfdAiCtrl->getChannels();
+    // Get AI channels property for parameters setting.
+    Array<AiChannel>* channels = self->wfAiCtrl->getChannels();
+    // Set signal connection type.
     for(int i=0; i < channels->getCount(); ++i)
     {
-        channels->getItem(i).setValueRange(mV_Neg625To625);
+      channels->getItem(i).setSignalType(SingleEnded);
+    // Set value range.
+      //channels->getItem(i).setValueRange(mV_Neg625To625);
+      channels->getItem(i).setValueRange(V_Neg10To10);
     }
-    self->bfdAiCtrl->getScanChannel()->setChannelStart(self->chStart);
-    self->bfdAiCtrl->getScanChannel()->setChannelCount(self->chCount);
-    self->bfdAiCtrl->getScanChannel()->setSamples(self->samples);
-    self->bfdAiCtrl->getScanChannel()->setIntervalCount(self->samples);
-    
-    self->bfdAiCtrl->getConvertClock()->setRate(self->clkRate);
-    
-    self->bfdAiCtrl->setStreaming(false);
-    ret = self->bfdAiCtrl->Prepare();
-    CHK_RESULT(ret);
-    printf("ErrorCode: 0x%X. \n", ret);
-    
+
+    Conversion* conversion = self->wfAiCtrl->getConversion();
+    conversion->setChannelStart(self->chStart);
+    conversion->setChannelCount(self->chCount);
+    conversion->setClockRate(self->clkRate);
+    //printf("SetClockRate ErrorCode: 0x%X. \n", ret);
+
+    Record* record = self->wfAiCtrl->getRecord();
+    ret = record->setSectionCount(self->sectionCount);
+    ret = record->setSectionLength(self->sectionLength);
+    //CHK_RESULT(ret);
+    //printf("SectionLength ErrorCode: 0x%X. \n", ret);
+    ret = self->wfAiCtrl->Prepare();
+    //printf("Prepare ErrorCode: 0x%X. \n", ret);
+    ret = self->wfAiCtrl->Start();
+    printf("Start ErrorCode: 0x%X. \n", ret);
+
     return 0;
 }
 
-static PyMemberDef Ads_members[] = {
-/*    {"samples", T_INT, offsetof(Ads, samples), 0, "samples"},
-    {"clkRate", T_INT, offsetof(Ads, clkRate), 0, "clkRate"},
-    {"chStart", T_INT, offsetof(Ads, chStart), 0, "chStart"},
-    {"chCount", T_INT, offsetof(Ads, chCount), 0, "chCount"}, */
-    {NULL} /* Sentinel */
-};
-
 static PyObject *
+Ads_params(Ads* self)
+{
+    if (self->clkRate == NULL) {
+        PyErr_SetString(PyExc_AttributeError, "clkRate");
+        return NULL;
+    }
+
+    if (self->chStart == NULL) {
+        PyErr_SetString(PyExc_AttributeError, "chStart");
+        return NULL;
+    }
+
+    return PyUnicode_FromFormat("%i %i", self->clkRate, self->chStart);
+}
+
+static PyObject*
 Ads_readFGvalue(Ads* self)
 {
-    double Data[self->samples * self->chCount];
+      // Get Data
+      ErrorCode ret = Success;
+      int32 returnedCount = 0;
 
-    self->bfdAiCtrl->RunOnce();
-    SLEEP(1);
-    self->bfdAiCtrl->GetData(self->samples * self->chCount,Data);
-    double sum = 0;
-    double scale = 7000;
-    for(int32 i = 0; i < self->samples; ++i)
-    {
-        sum = sum + Data[3*i];
-    }
-    double meanBx = scale * sum/self->samples;
-    sum = 0;
-    for(int32 i = 0; i < self->samples; ++i)
-    {
-        sum = sum + Data[3*i+1];
-    }
-    double meanBy = scale * sum/self->samples;
-    sum = 0;
-    for(int32 i = 0; i < self->samples; ++i)
-    {
-        sum = sum + Data[3*i+2];
-    }
-    double meanBz = scale * sum/self->samples;
-    return Py_BuildValue("ddd", meanBx, meanBy, meanBz);
+      ret = self->wfAiCtrl->Start();
+      //printf("Start ErrorCode: 0x%X. \n", ret);
+
+      int le = self->samples * self->chCount;
+
+      double* Data = new double[le];
+      ret = self->wfAiCtrl->GetData(self->samples * self->chCount, Data, -1, &returnedCount);
+      //printf("# values: %i \n", returnedCount);
+
+      //printf("GetData ErrorCode: 0x%X. \n", ret);
+      /*for(int32 i = 0; i < self->chCount; ++i)
+      {
+        printf("channel %i: %10.6f \n", (i + self->chStart), Data[i]);
+      }
+      */
+      ret = self->wfAiCtrl->Stop();
+      //printf("Stop ErrorCode: 0x%X. \n", ret);
+
+      double sum = 0;
+      for(int32 i = 0; i < self->samples; ++i)
+      {
+          sum = sum + Data[3*i];
+      }
+      double meanBx = self->scale * sum/self->samples;
+      sum = 0;
+      for(int32 i = 0; i < self->samples; ++i)
+      {
+          sum = sum + Data[3*i+1];
+      }
+      double meanBy = self->scale * sum/self->samples;
+      sum = 0;
+      for(int32 i = 0; i < self->samples; ++i)
+      {
+          sum = sum + Data[3*i+2];
+      }
+      double meanBz = self->scale * sum/self->samples;
+
+      delete[] Data;
+      return Py_BuildValue("ddd", meanBx, meanBy, meanBz);
 }
 
-static PyObject *
-Ads_getSamples(Ads* self)
+static PyObject*
+Ads_readFGfast(Ads* self)
 {
-    return Py_BuildValue("i", self->samples);
+      // Get Data
+      ErrorCode ret = Success;
+      int32 returnedCount = 0;
+
+      ret = self->wfAiCtrl->Start();
+      //printf("Start ErrorCode: 0x%X. \n", ret);
+
+      int le = self->samples * self->chCount;
+
+      double* Data = new double[le];
+      ret = self->wfAiCtrl->GetData(self->samples * self->chCount, Data, -1, &returnedCount);
+      //printf("# values: %i \n", returnedCount);
+
+      //printf("GetData ErrorCode: 0x%X. \n", ret);
+      /*for(int32 i = 0; i < self->chCount; ++i)
+      {
+        printf("channel %i: %10.6f \n", (i + self->chStart), Data[i]);
+      }
+      */
+      ret = self->wfAiCtrl->Stop();
+      //printf("Stop ErrorCode: 0x%X. \n", ret);
+
+      PyObject *lst = PyList_New(self->samples * self->chCount);
+      if (!lst)
+          return NULL;
+      for (int i = 0; i < self->samples * self->chCount; i++) {
+          PyObject *num = PyFloat_FromDouble(self->scale*Data[i]);
+          if (!num) {
+              Py_DECREF(lst);
+              return NULL;
+          }
+          PyList_SET_ITEM(lst, i, num);   // reference to num stolen
+      }
+      return lst;
 }
 
-static PyObject *
-Ads_getclkRate(Ads* self)
+
+static PyObject*
+Ads_getClkRate(Ads* self)
 {
-    return Py_BuildValue("i", self->clkRate);
+  double rate;
+  Conversion* conversion = self->wfAiCtrl->getConversion();
+  rate = conversion->getClockRate();
+  return Py_BuildValue("d", rate);
+}
+
+static PyObject*
+Ads_setClkRate(Ads* self, PyObject *args)
+{
+  //printf("setclockrate \n");
+  //PyObject *tmp;
+  ErrorCode ret = Success;
+  double clkRate;
+
+  if (! PyArg_ParseTuple(args, "d", &clkRate))
+      return NULL;
+
+  //printf("pyarg: %d. \n", clkRate);
+  Conversion* conversion = self->wfAiCtrl->getConversion();
+  ret = conversion->setClockRate(clkRate);
+  //printf("setclockrate ErrorCode: 0x%X. \n", ret);
+  self->clkRate = clkRate;
+  return Py_BuildValue("d", clkRate);
+}
+
+static PyObject*
+Ads_setRangeTo10(Ads* self)
+{
+  // Get AI channels property for parameters setting.
+  Array<AiChannel>* channels = self->wfAiCtrl->getChannels();
+  // Set signal connection type.
+  for(int i=0; i < channels->getCount(); ++i)
+  {
+    channels->getItem(i).setSignalType(SingleEnded);
+  // Set value range.
+    //channels->getItem(i).setValueRange(mV_Neg625To625);
+    channels->getItem(i).setValueRange(V_Neg10To10);
+  }
+  return Py_BuildValue("d", 0);
+}
+
+static PyObject*
+Ads_setRangeTo625(Ads* self)
+{
+  // Get AI channels property for parameters setting.
+  Array<AiChannel>* channels = self->wfAiCtrl->getChannels();
+  // Set signal connection type.
+  for(int i=0; i < channels->getCount(); ++i)
+  {
+    channels->getItem(i).setSignalType(SingleEnded);
+  // Set value range.
+    channels->getItem(i).setValueRange(mV_Neg625To625);
+    //channels->getItem(i).setValueRange(V_Neg10To10);
+  }
+  return Py_BuildValue("d", 0);
+}
+
+
+static PyObject*
+Ads_getSectionLength(Ads* self)
+{
+  double sl;
+  Record* record = self->wfAiCtrl->getRecord();
+  sl = record->getSectionLength();
+  return Py_BuildValue("d", sl);
 }
 
 static PyMethodDef Ads_methods[] = {
     {"readFGvalue", (PyCFunction)Ads_readFGvalue, METH_NOARGS,
-        "read fg values and return result"},
-    {"getSamples", (PyCFunction)Ads_getSamples, METH_NOARGS, "return sample number"},
-    {"getclkRate", (PyCFunction)Ads_getclkRate, METH_NOARGS, "return clock rate"},
+    "Return params"
+    },
+    {"readFGfast", (PyCFunction)Ads_readFGfast, METH_NOARGS,
+    "Return params"
+    },
+    {"setRangeTo10", (PyCFunction)Ads_setRangeTo10, METH_NOARGS,
+    "Return params"
+    },
+    {"setRangeTo625", (PyCFunction)Ads_setRangeTo625, METH_NOARGS,
+    "Return params"
+    },
+    {"getClkRate", (PyCFunction)Ads_getClkRate, METH_NOARGS,
+    "Return clkrate"
+    },
+    {"setClkRate", (PyCFunction)Ads_setClkRate, METH_VARARGS,
+    "Return clkrate"
+    },
+    {"getSectionLength", (PyCFunction)Ads_getSectionLength, METH_NOARGS,
+    "Return sectionlength"
+    },
+    {"params", (PyCFunction)Ads_params, METH_NOARGS,
+     "Return params"
+    },
+    {NULL}  /* Sentinel */
+};
 
-    {NULL}
+static PyMemberDef Ads_members[] = {
+    {"clkRate", T_INT, offsetof(Ads, clkRate), 0,
+     "sampling freq"},
+    {"chStart", T_INT, offsetof(Ads, chStart), 0,
+     "first channel"},
+    {"chCount", T_INT, offsetof(Ads, chCount), 0,
+     "number of channels"},
+    {"samples", T_INT, offsetof(Ads, samples), 0,
+      "samples to read"},
+    {"scale", T_DOUBLE, offsetof(Ads, scale), 0,
+      "V to nT"},
+    {NULL}  /* Sentinel */
 };
 
 static PyTypeObject AdsType = {
-    PyObject_HEAD_INIT(NULL)
-    0,                         /*ob_size*/
-    "ads.Ads",             /*tp_name*/
-    sizeof(Ads),             /*tp_basicsize*/
-    0,                         /*tp_itemsize*/
-    (destructor)Ads_dealloc, /*tp_dealloc*/
-    0,                         /*tp_print*/
-    0,                         /*tp_getattr*/
-    0,                         /*tp_setattr*/
-    0,                         /*tp_compare*/
-    0,                         /*tp_repr*/
-    0,                         /*tp_as_number*/
-    0,                         /*tp_as_sequence*/
-    0,                         /*tp_as_mapping*/
-    0,                         /*tp_hash */
-    0,                         /*tp_call*/
-    0,                         /*tp_str*/
-    0,                         /*tp_getattro*/
-    0,                         /*tp_setattro*/
-    0,                         /*tp_as_buffer*/
-    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE, /*tp_flags*/
+    PyVarObject_HEAD_INIT(NULL, 0)
+    "ads.Ads",             /* tp_name */
+    sizeof(Ads),             /* tp_basicsize */
+    0,                         /* tp_itemsize */
+    (destructor)Ads_dealloc, /* tp_dealloc */
+    0,                         /* tp_print */
+    0,                         /* tp_getattr */
+    0,                         /* tp_setattr */
+    0,                         /* tp_reserved */
+    0,                         /* tp_repr */
+    0,                         /* tp_as_number */
+    0,                         /* tp_as_sequence */
+    0,                         /* tp_as_mapping */
+    0,                         /* tp_hash  */
+    0,                         /* tp_call */
+    0,                         /* tp_str */
+    0,                         /* tp_getattro */
+    0,                         /* tp_setattro */
+    0,                         /* tp_as_buffer */
+    Py_TPFLAGS_DEFAULT |
+        Py_TPFLAGS_BASETYPE,   /* tp_flags */
     "Ads objects",           /* tp_doc */
-    0,		               /* tp_traverse */
-    0,		               /* tp_clear */
-    0,		               /* tp_richcompare */
-    0,		               /* tp_weaklistoffset */
-    0,		               /* tp_iter */
-    0,		               /* tp_iternext */
+    0,                         /* tp_traverse */
+    0,                         /* tp_clear */
+    0,                         /* tp_richcompare */
+    0,                         /* tp_weaklistoffset */
+    0,                         /* tp_iter */
+    0,                         /* tp_iternext */
     Ads_methods,             /* tp_methods */
     Ads_members,             /* tp_members */
     0,                         /* tp_getset */
@@ -182,27 +353,27 @@ static PyTypeObject AdsType = {
     Ads_new,                 /* tp_new */
 };
 
-static PyMethodDef module_methods[] = {
-    {NULL}  /* Sentinel */
+static PyModuleDef adsmodule = {
+  PyModuleDef_HEAD_INIT,
+  "ads",
+  "ads module",
+  -1,
+  NULL, NULL, NULL, NULL, NULL
 };
 
-#ifndef PyMODINIT_FUNC	/* declarations for DLL import/export */
-#define PyMODINIT_FUNC void
-#endif
 PyMODINIT_FUNC
-initads(void)
+PyInit_ads(void)
 {
-    PyObject* m;
+  PyObject* m;
 
-    if (PyType_Ready(&AdsType) < 0)
-        return;
+  if (PyType_Ready(&AdsType) < 0)
+      return NULL;
 
-    m = Py_InitModule3("ads", module_methods, "Module to handle ADS DAQ for fluxgate readout");
+  m = PyModule_Create(&adsmodule);
+  if (m == NULL)
+      return NULL;
 
-    if (m == NULL)
-        return;
-
-    Py_INCREF(&AdsType);
-    PyModule_AddObject(m, "Ads", (PyObject *)&AdsType);
+  Py_INCREF(&AdsType);
+  PyModule_AddObject(m, "Ads", (PyObject *)&AdsType);
+  return m;
 }
-

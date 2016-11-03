@@ -16,7 +16,7 @@ def start():
         "arguments" : []
         }
     r = des.post("_update/insert_with_timestamp", params = adoc)
-    print "start command posted"
+    print("start command posted")
     #print r.json()
 
 def stop():
@@ -26,7 +26,7 @@ def stop():
         "arguments" : []
         }
     r = des.post("_update/insert_with_timestamp", params = adoc)
-    print "stop command posted"
+    print("stop command posted")
     #print r.json()
 
 def once():
@@ -36,6 +36,6 @@ def once():
             "arguments" : [ "test comment" ]
             }
     r = des.post("_update/insert_with_timestamp", params = adoc)
-    print r.json()
-    print "measured once"
+    print(r.json())
+    print("measured once")
     

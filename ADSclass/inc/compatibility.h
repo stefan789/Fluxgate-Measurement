@@ -6,11 +6,11 @@
 #pragma warning( disable: 4996 )
 #endif
 
-#if defined(DEBUG)||defined(_DEBUG)
-#define CHK_RESULT(ret) assert(BioFailed(ret));
-#else
-#define CHK_RESULT(ret) 
-#endif
+//#if defined(DEBUG)||defined(_DEBUG)
+#define CHK_RESULT(ret) {if(BioFailed(ret))break;}
+//#else
+//#define CHK_RESULT(ret) 
+//#endif
 
 #if !defined(_WIN32)
 #  define SLEEP(second)  sleep(second)
@@ -25,6 +25,7 @@ inline int kbhit(void)
 }
 #else
 #define SLEEP(second)  Sleep(second*1000)
+#define BYTE           uint8
 #endif
 
 
